@@ -1,27 +1,31 @@
 import { randomBytes } from "node:crypto";
 import { createApp } from "./app.js";
+import { hashPassword } from "./auth/passwords.js";
 import { config } from "./config.js";
-import { seedUserWithSession } from "./db.js";
+import { createUser } from "./db.js";
 import { logger } from "./logger.js";
-import { digestSessionToken } from "./middleware/auth.js";
 
 const app = createApp();
 
 /**
- * Dev convenience: seed one user + session so the API is testable
- * immediately. The raw token is generated fresh per boot (never a
- * hardcoded credential) and printed to the local console only.
- * Guarded out of production builds entirely.
+ * Dev convenience: seed one user so the login flow is testable immediately.
+ * The password is generated fresh per boot (never a hardcoded credential)
+ * and printed to the local console only. Guarded out of production entirely.
  */
-if (!config.isProduction) {
-  const rawToken = randomBytes(32).toString("base64url");
-  seedUserWithSession({
+async function seedDevUser(): Promise<void> {
+  const password = randomBytes(12).toString("base64url");
+  createUser({
     email: "dev@example.com",
     displayName: "Dev User",
-    tokenDigest: digestSessionToken(rawToken),
-    sessionTtlMs: 60 * 60 * 1000, // 1 hour — short-lived even in dev (AISDP #3).
+    passwordHash: await hashPassword(password),
   });
-  logger.info("dev_session_seeded", { hint: `Authorization: Bearer ${rawToken}` });
+  logger.info("dev_user_seeded", {
+    hint: `POST /api/v1/auth/login {"email":"dev@example.com","password":"${password}"}`,
+  });
+}
+
+if (!config.isProduction) {
+  await seedDevUser();
 }
 
 app.listen(config.port, () => {

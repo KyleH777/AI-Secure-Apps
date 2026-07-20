@@ -15,10 +15,10 @@ import { UPDATABLE_COLUMNS, type ProfileUpdate } from "./schemas/userProfile.js"
  *   the server-side UPDATABLE_COLUMNS constant, never from request keys.
  *
  * SECURITY (Least Privilege, AISDP #3): in a real deployment the app's DB
- * role should have only SELECT/UPDATE on `users` and SELECT on `sessions` —
- * no DDL, no access to other tables. SQLite has no roles, so the equivalent
- * here is that this module exports only the narrow operations the API
- * needs; there is no generic "run a query" escape hatch.
+ * role should have only the DML it needs (no DDL, no other tables). SQLite
+ * has no roles, so the equivalent here is that this module exports only the
+ * narrow operations the API needs; there is no generic "run a query"
+ * escape hatch.
  */
 
 const db = new Database(process.env.DATABASE_FILE ?? ":memory:");
@@ -29,6 +29,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id            TEXT PRIMARY KEY,
     email         TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
     role          TEXT NOT NULL DEFAULT 'member',
     display_name  TEXT NOT NULL,
     bio           TEXT NOT NULL DEFAULT '',
@@ -37,22 +38,26 @@ db.exec(`
     updated_at    INTEGER NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS sessions (
+  CREATE TABLE IF NOT EXISTS refresh_tokens (
     id            TEXT PRIMARY KEY,
     user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    family_id     TEXT NOT NULL,
     token_digest  TEXT NOT NULL UNIQUE,
-    expires_at    INTEGER NOT NULL
+    expires_at    INTEGER NOT NULL,
+    revoked_at    INTEGER,
+    replaced_by   TEXT
   );
+  CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id);
 `);
 
-export interface SessionRecord {
+// ---------------------------------------------------------------- users ----
+
+export interface UserCredentials {
   id: string;
-  userId: string;
-  tokenDigest: string;
-  expiresAt: number;
+  passwordHash: string;
 }
 
-/** The exact shape returned to clients — private columns (email, role) are never selected. */
+/** The exact shape returned to clients — private columns (email, role, password_hash) are never selected. */
 export interface PublicProfile {
   id: string;
   displayName: string;
@@ -62,13 +67,12 @@ export interface PublicProfile {
   updatedAt: number;
 }
 
-const selectSession = db.prepare(
-  `SELECT id, user_id AS userId, token_digest AS tokenDigest, expires_at AS expiresAt
-     FROM sessions WHERE token_digest = ?`,
+const selectCredentials = db.prepare(
+  `SELECT id, password_hash AS passwordHash FROM users WHERE email = ?`,
 );
 
-export function findSessionByTokenDigest(digest: string): SessionRecord | undefined {
-  return selectSession.get(digest) as SessionRecord | undefined;
+export function findUserCredentialsByEmail(email: string): UserCredentials | undefined {
+  return selectCredentials.get(email) as UserCredentials | undefined;
 }
 
 /**
@@ -109,20 +113,76 @@ export function updateProfile(userId: string, update: ProfileUpdate): PublicProf
   return getProfile(userId);
 }
 
-/** Test/dev seeding helper — not reachable from any HTTP route. */
-export function seedUserWithSession(input: {
+/** Seeding helper for dev/tests — not reachable from any HTTP route. */
+export function createUser(input: {
   email: string;
   displayName: string;
-  tokenDigest: string;
-  sessionTtlMs: number;
-}): { userId: string; sessionId: string } {
+  passwordHash: string;
+}): { userId: string } {
   const userId = randomUUID();
-  const sessionId = randomUUID();
   db.prepare(
-    `INSERT INTO users (id, email, display_name, updated_at) VALUES (?, ?, ?, ?)`,
-  ).run(userId, input.email, input.displayName, Date.now());
-  db.prepare(
-    `INSERT INTO sessions (id, user_id, token_digest, expires_at) VALUES (?, ?, ?, ?)`,
-  ).run(sessionId, userId, input.tokenDigest, Date.now() + input.sessionTtlMs);
-  return { userId, sessionId };
+    `INSERT INTO users (id, email, password_hash, display_name, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(userId, input.email, input.passwordHash, input.displayName, Date.now());
+  return { userId };
+}
+
+// ------------------------------------------------------- refresh tokens ----
+
+export interface RefreshTokenRecord {
+  id: string;
+  userId: string;
+  familyId: string;
+  tokenDigest: string;
+  expiresAt: number;
+  revokedAt: number | null;
+  replacedBy: string | null;
+}
+
+const insertToken = db.prepare(
+  `INSERT INTO refresh_tokens (id, user_id, family_id, token_digest, expires_at, revoked_at, replaced_by)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`,
+);
+
+export function insertRefreshToken(record: RefreshTokenRecord): void {
+  insertToken.run(
+    record.id,
+    record.userId,
+    record.familyId,
+    record.tokenDigest,
+    record.expiresAt,
+    record.revokedAt,
+    record.replacedBy,
+  );
+}
+
+const selectToken = db.prepare(
+  `SELECT id, user_id AS userId, family_id AS familyId, token_digest AS tokenDigest,
+          expires_at AS expiresAt, revoked_at AS revokedAt, replaced_by AS replacedBy
+     FROM refresh_tokens WHERE token_digest = ?`,
+);
+
+export function findRefreshTokenByDigest(digest: string): RefreshTokenRecord | undefined {
+  return selectToken.get(digest) as RefreshTokenRecord | undefined;
+}
+
+const rotateToken = db.prepare(
+  `UPDATE refresh_tokens SET replaced_by = ?, revoked_at = ? WHERE id = ?`,
+);
+
+export function markRefreshTokenRotated(id: string, replacedById: string): void {
+  rotateToken.run(replacedById, Date.now(), id);
+}
+
+/**
+ * SECURITY (Invalidation): revocation is a server-side state change on the
+ * whole family — every outstanding token in the chain dies at once, which
+ * is what makes logout and theft-response real rather than cosmetic.
+ */
+const revokeFamily = db.prepare(
+  `UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL`,
+);
+
+export function revokeRefreshTokenFamily(familyId: string): void {
+  revokeFamily.run(Date.now(), familyId);
 }

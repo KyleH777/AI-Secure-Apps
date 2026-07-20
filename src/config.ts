@@ -36,14 +36,54 @@ export const config = {
     .filter((origin) => origin.length > 0),
 
   /**
-   * SECURITY (secrets): HMAC key used to derive session-token digests.
-   * Provided via env; the dev fallback exists only so `npm run dev` works
-   * locally and is rejected in production by requiredInProd().
+   * SECURITY (secrets): HMAC key used to derive refresh-token digests before
+   * they touch the database. Provided via env; the dev fallback exists only
+   * so `npm run dev` works locally and is rejected in production by
+   * requiredInProd().
    */
-  sessionTokenPepper: requiredInProd(
-    "SESSION_TOKEN_PEPPER",
+  refreshTokenPepper: requiredInProd(
+    "REFRESH_TOKEN_PEPPER",
     "dev-only-pepper-do-not-use-in-prod",
   ),
+
+  /**
+   * JWT access-token settings (IAM requirements).
+   *
+   * SECURITY (Token Lifecycle):
+   * - HS256 signing key comes from the environment, never code (AISDP #1).
+   *   Must be >= 32 bytes; enforced at boot in auth/jwt.ts.
+   * - Access tokens are short-lived (15 minutes) so a leaked token has a
+   *   tightly bounded blast radius; long-lived state lives only in the
+   *   rotating refresh token.
+   * - iss/aud are pinned and verified on every request so a token minted
+   *   for a different service in the same org can never be replayed here.
+   */
+  jwt: {
+    secret: requiredInProd(
+      "JWT_SECRET",
+      "dev-only-jwt-secret-at-least-32-bytes-long!",
+    ),
+    issuer: process.env.JWT_ISSUER ?? "https://auth.ai-secure-apps.local",
+    audience: process.env.JWT_AUDIENCE ?? "ai-secure-apps-api",
+    accessTokenTtlSeconds: 15 * 60, // 15 minutes
+  },
+
+  refreshToken: {
+    cookieName: "refresh_token",
+    ttlMs: 14 * 24 * 60 * 60 * 1000, // 14 days absolute lifetime per family
+    /**
+     * SECURITY: the cookie is scoped to the auth router only — the browser
+     * never attaches the refresh token to profile/API requests, shrinking
+     * both exposure and CSRF surface.
+     */
+    cookiePath: "/api/v1/auth",
+  },
+
+  /** Tighter per-IP budget for credential endpoints (brute-force control). */
+  authRateLimit: {
+    windowMs: Number.parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS ?? "60000", 10),
+    maxRequests: Number.parseInt(process.env.AUTH_RATE_LIMIT_MAX ?? "10", 10),
+  },
 
   rateLimit: {
     /** Sliding-window size in milliseconds. */

@@ -1,40 +1,33 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
-import { config } from "../config.js";
-import { findSessionByTokenDigest } from "../db.js";
+import { verifyAccessToken } from "../auth/jwt.js";
 import { AppError } from "../errors.js";
 
 /**
- * Bearer-token authentication middleware.
+ * JWT bearer authentication middleware.
  *
- * SECURITY (Broken Authentication / least privilege, AISDP #3):
- * - Opaque random session tokens, NOT user-controlled data, identify the
- *   caller. The route then operates only on `req.auth.userId` — the client
- *   can never name which user's profile to update (no `userId` in the URL
- *   or body), which eliminates BOLA/IDOR on this endpoint by construction.
- * - Tokens are stored only as HMAC-SHA256 digests (keyed with a server-side
- *   pepper from the environment). A leaked database does not leak usable
- *   session tokens, and the pepper never appears in code or logs.
- * - Digest comparison uses timingSafeEqual to rule out timing side-channels.
- * - Sessions carry an expiry; expired sessions are rejected server-side
- *   regardless of what the client claims.
- * - Failure responses are uniform ("Authentication required.") so an
- *   attacker cannot distinguish unknown vs. expired vs. malformed tokens.
+ * SECURITY (Verification + least privilege, AISDP #3):
+ * - Every protected request re-verifies signature (HS256 pinned), `exp`,
+ *   `iss`, and `aud` via auth/jwt.ts — nothing is trusted from a previous
+ *   request or a cache.
+ * - The route layer then operates only on `req.auth.userId` (the verified
+ *   `sub` claim) — the client can never name which user's data to touch (no
+ *   userId in the URL or body), which eliminates BOLA/IDOR by construction.
+ * - Failure responses are uniform ("Authentication required.") whether the
+ *   token is missing, malformed, expired, mis-audienced, or forged — no
+ *   oracle for attackers.
+ * - Access tokens are 15-minute-lived and never stored server-side; revoking
+ *   long-term access happens at the refresh-token layer (see auth/refreshTokens.ts).
  */
 
 declare module "express-serve-static-core" {
   interface Request {
-    auth?: { userId: string; sessionId: string };
+    auth?: { userId: string };
   }
 }
 
-export function digestSessionToken(rawToken: string): string {
-  return createHmac("sha256", config.sessionTokenPepper).update(rawToken).digest("hex");
-}
+const BEARER_PATTERN = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/;
 
-const BEARER_PATTERN = /^Bearer ([A-Za-z0-9_-]{20,128})$/;
-
-export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
+export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   const match = header ? BEARER_PATTERN.exec(header) : null;
   if (!match) {
@@ -42,27 +35,12 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
     return;
   }
 
-  const digest = digestSessionToken(match[1] as string);
-  const session = findSessionByTokenDigest(digest);
-  if (!session) {
+  const claims = await verifyAccessToken(match[1] as string);
+  if (!claims) {
     next(new AppError("unauthorized", "Authentication required."));
     return;
   }
 
-  // Constant-time re-check of the digest defends against any lookup-layer
-  // shortcuts (e.g. a future cache with prefix matching).
-  const stored = Buffer.from(session.tokenDigest, "hex");
-  const presented = Buffer.from(digest, "hex");
-  if (stored.length !== presented.length || !timingSafeEqual(stored, presented)) {
-    next(new AppError("unauthorized", "Authentication required."));
-    return;
-  }
-
-  if (session.expiresAt <= Date.now()) {
-    next(new AppError("unauthorized", "Authentication required."));
-    return;
-  }
-
-  req.auth = { userId: session.userId, sessionId: session.id };
+  req.auth = { userId: claims.sub };
   next();
 }

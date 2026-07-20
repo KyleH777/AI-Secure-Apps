@@ -6,6 +6,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { rateLimit } from "./middleware/rateLimit.js";
 import { requestId } from "./middleware/requestId.js";
 import { securityHeaders } from "./middleware/securityHeaders.js";
+import { authRouter } from "./routes/auth.js";
 import { profileRouter } from "./routes/profile.js";
 
 export function createApp(): express.Express {
@@ -33,6 +34,7 @@ export function createApp(): express.Express {
     res.json({ status: "ok" });
   });
 
+  app.use("/api/v1", authRouter);
   app.use("/api/v1", profileRouter);
 
   // Uniform 404 for unknown routes, same envelope as every other error.
