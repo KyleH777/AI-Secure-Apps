@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- A11Y (WCAG 1.4.10 Reflow): responsive viewport; no maximum-scale or
+       user-scalable=no — pinch zoom must never be disabled. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout — AI Secure Apps</title>
+  <link rel="stylesheet" href="checkout.css">
+</head>
+<body>
+  <!-- A11Y (WCAG 2.4.1 Bypass Blocks): first focusable element jumps past
+       repeated chrome straight to the form. Visually hidden until focused. -->
+  <a class="skip-link" href="#checkout-main">Skip to checkout form</a>
+
+  <header>
+    <p class="brand">AI Secure Apps <span class="brand-divider" aria-hidden="true">·</span> Store</p>
+  </header>
+
+  <!-- A11Y (Semantic HTML): landmark elements — <header>, <nav>, <main> —
+       give screen-reader users a page map for free. -->
+  <main id="checkout-main">
+    <h1>Checkout</h1>
+
+    <!-- A11Y: progress indicator is a NAV landmark with an ordered list.
+         aria-current="step" marks the active step; visited/current/upcoming
+         state is conveyed in text ("Step 1 of 3", "(completed)") — never by
+         color alone (WCAG 1.4.1 Use of Color). -->
+    <nav aria-label="Checkout progress">
+      <ol class="progress" id="progress-list">
+        <li data-step="1" aria-current="step">
+          <span class="progress-marker" aria-hidden="true">1</span>
+          <span class="progress-label">Shipping<span class="visually-hidden"> — step 1 of 3</span></span>
+        </li>
+        <li data-step="2">
+          <span class="progress-marker" aria-hidden="true">2</span>
+          <span class="progress-label">Payment<span class="visually-hidden"> — step 2 of 3</span></span>
+        </li>
+        <li data-step="3">
+          <span class="progress-marker" aria-hidden="true">3</span>
+          <span class="progress-label">Review<span class="visually-hidden"> — step 3 of 3</span></span>
+        </li>
+      </ol>
+    </nav>
+
+    <!-- A11Y (WCAG 4.1.3 Status Messages): step changes and outcomes are
+         announced here without stealing focus. aria-live="polite" waits for
+         the screen reader to finish speaking; it is NOT used for errors
+         (those get focus + role="alert" in the error summary instead). -->
+    <p id="status-live" class="visually-hidden" aria-live="polite"></p>
+
+    <!-- novalidate: we run validation in JS so errors can be announced and
+         focus-managed consistently across browsers/AT combinations. -->
+    <form id="checkout-form" novalidate>
+
+      <!-- A11Y: the error summary receives keyboard focus when validation
+           fails (WCAG 3.3.1 Error Identification). role="alert" makes it an
+           assertive live region; each entry is a real link that moves focus
+           to the offending field. Hidden whenever there are no errors. -->
+      <div id="error-summary" class="error-summary" role="alert" tabindex="-1" hidden>
+        <h2 class="error-summary-title">There is a problem</h2>
+        <ul id="error-summary-list"></ul>
+      </div>
+
+      <!-- ============================ STEP 1 ============================ -->
+      <section class="step" id="step-1" aria-labelledby="step-1-heading">
+        <!-- tabindex="-1": headings receive programmatic focus on step
+             change so keyboard/SR users land at the top of the new step. -->
+        <h2 id="step-1-heading" tabindex="-1">Shipping details</h2>
+
+        <fieldset>
+          <legend>Contact</legend>
+
+          <div class="field">
+            <!-- A11Y: every control has a real <label for>; clicking the
+                 label focuses the input and AT reads the association. -->
+            <label for="full-name">Full name</label>
+            <!-- autocomplete satisfies WCAG 1.3.5 Identify Input Purpose. -->
+            <input id="full-name" name="full-name" type="text" autocomplete="name" required
+                   aria-describedby="full-name-error">
+            <p class="error-message" id="full-name-error" hidden></p>
+          </div>
+
+          <div class="field">
+            <label for="email">Email address</label>
+            <!-- aria-describedby chains the hint AND the error slot; AT
+                 reads both with the field (WCAG 3.3.2 Labels or Instructions). -->
+            <p class="hint" id="email-hint">We only use this for your order confirmation.</p>
+            <input id="email" name="email" type="email" autocomplete="email" required
+                   aria-describedby="email-hint email-error">
+            <p class="error-message" id="email-error" hidden></p>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Delivery address</legend>
+
+          <div class="field">
+            <label for="address">Street address</label>
+            <input id="address" name="address" type="text" autocomplete="street-address" required
+                   aria-describedby="address-error">
+            <p class="error-message" id="address-error" hidden></p>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="city">City</label>
+              <input id="city" name="city" type="text" autocomplete="address-level2" required
+                     aria-describedby="city-error">
+              <p class="error-message" id="city-error" hidden></p>
+            </div>
+            <div class="field">
+              <label for="postal-code">Postal code</label>
+              <input id="postal-code" name="postal-code" type="text" autocomplete="postal-code"
+                     inputmode="numeric" required aria-describedby="postal-code-error">
+              <p class="error-message" id="postal-code-error" hidden></p>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="country">Country</label>
+            <!-- Native <select>: full keyboard support (arrows, type-ahead)
+                 and AT integration for free — no ARIA listbox re-implementation. -->
+            <select id="country" name="country" autocomplete="country-name" required
+                    aria-describedby="country-error">
+              <option value="">Select a country</option>
+              <option>Australia</option>
+              <option>Canada</option>
+              <option>Germany</option>
+              <option>India</option>
+              <option>Japan</option>
+              <option>United Kingdom</option>
+              <option>United States</option>
+            </select>
+            <p class="error-message" id="country-error" hidden></p>
+          </div>
+        </fieldset>
+
+        <div class="step-actions">
+          <!-- Real <button>: focusable, Enter/Space operable, exposed as a
+               button — no div-with-onclick (Semantic HTML requirement). -->
+          <button type="button" class="button-primary" data-action="next">Continue to payment</button>
+        </div>
+      </section>
+
+      <!-- ============================ STEP 2 ============================ -->
+      <section class="step" id="step-2" aria-labelledby="step-2-heading" hidden>
+        <h2 id="step-2-heading" tabindex="-1">Payment</h2>
+
+        <!-- A11Y: radios share a name so arrow keys move between them
+             natively; fieldset/legend gives the group an accessible label. -->
+        <fieldset>
+          <legend>Delivery method</legend>
+          <div class="choice">
+            <input type="radio" id="ship-standard" name="shipping-method" value="standard" checked>
+            <label for="ship-standard">Standard — 5 to 7 business days <strong>(free)</strong></label>
+          </div>
+          <div class="choice">
+            <input type="radio" id="ship-express" name="shipping-method" value="express">
+            <label for="ship-express">Express — 1 to 2 business days <strong>($12.00)</strong></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Card details</legend>
+          <p class="hint" id="demo-hint">Demo form — no payment is processed and nothing leaves this page.</p>
+
+          <div class="field">
+            <label for="card-name">Name on card</label>
+            <input id="card-name" name="card-name" type="text" autocomplete="cc-name" required
+                   aria-describedby="card-name-error">
+            <p class="error-message" id="card-name-error" hidden></p>
+          </div>
+
+          <div class="field">
+            <label for="card-number">Card number</label>
+            <p class="hint" id="card-number-hint">16 digits, spaces allowed.</p>
+            <input id="card-number" name="card-number" type="text" inputmode="numeric"
+                   autocomplete="cc-number" required
+                   aria-describedby="card-number-hint card-number-error">
+            <p class="error-message" id="card-number-error" hidden></p>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="card-expiry">Expiry date</label>
+              <p class="hint" id="card-expiry-hint">Format: MM/YY</p>
+              <input id="card-expiry" name="card-expiry" type="text" inputmode="numeric"
+                     autocomplete="cc-exp" required placeholder="MM/YY"
+                     aria-describedby="card-expiry-hint card-expiry-error">
+              <p class="error-message" id="card-expiry-error" hidden></p>
+            </div>
+            <div class="field">
+              <label for="card-cvc">Security code (CVC)</label>
+              <p class="hint" id="card-cvc-hint">3 or 4 digits on the back of your card.</p>
+              <input id="card-cvc" name="card-cvc" type="password" inputmode="numeric"
+                     autocomplete="cc-csc" required
+                     aria-describedby="card-cvc-hint card-cvc-error">
+              <p class="error-message" id="card-cvc-error" hidden></p>
+            </div>
+          </div>
+        </fieldset>
+
+        <div class="step-actions">
+          <button type="button" class="button-secondary" data-action="back">Back to shipping</button>
+          <button type="button" class="button-primary" data-action="next">Continue to review</button>
+        </div>
+      </section>
+
+      <!-- ============================ STEP 3 ============================ -->
+      <section class="step" id="step-3" aria-labelledby="step-3-heading" hidden>
+        <h2 id="step-3-heading" tabindex="-1">Review your order</h2>
+
+        <!-- Summary uses a description list; each block has an Edit BUTTON
+             (it changes in-page state, so it is a button, not a link). -->
+        <h3>Shipping details</h3>
+        <dl class="review-list" id="review-shipping"></dl>
+        <button type="button" class="button-link" data-goto="1">
+          Edit<span class="visually-hidden"> shipping details</span>
+        </button>
+
+        <h3>Payment</h3>
+        <dl class="review-list" id="review-payment"></dl>
+        <button type="button" class="button-link" data-goto="2">
+          Edit<span class="visually-hidden"> payment details</span>
+        </button>
+
+        <div class="step-actions">
+          <button type="button" class="button-secondary" data-action="back">Back to payment</button>
+          <button type="submit" class="button-primary">Place order</button>
+        </div>
+      </section>
+
+      <!-- ========================= CONFIRMATION ========================= -->
+      <section class="step" id="step-done" aria-labelledby="done-heading" hidden>
+        <h2 id="done-heading" tabindex="-1">Order placed</h2>
+        <p>Thank you! A confirmation email is on its way. This is a demo — no payment was taken.</p>
+      </section>
+    </form>
+  </main>
+
+  <script src="checkout.js"></script>
+</body>
+</html>
